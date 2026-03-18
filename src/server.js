@@ -75,6 +75,9 @@ const INTERNAL_GATEWAY_PORT = Number.parseInt(process.env.INTERNAL_GATEWAY_PORT 
 const INTERNAL_GATEWAY_HOST = process.env.INTERNAL_GATEWAY_HOST ?? "127.0.0.1";
 const GATEWAY_TARGET = `http://${INTERNAL_GATEWAY_HOST}:${INTERNAL_GATEWAY_PORT}`;
 
+// Token for authenticating with the gateway's /hooks/agent endpoint.
+const OPENCLAW_HOOKS_TOKEN = process.env.OPENCLAW_HOOKS_TOKEN?.trim();
+
 // Always run the built-from-source CLI entry directly to avoid PATH/global-install mismatches.
 const OPENCLAW_ENTRY = process.env.OPENCLAW_ENTRY?.trim() || "/openclaw/dist/entry.js";
 const OPENCLAW_NODE = process.env.OPENCLAW_NODE?.trim() || "node";
@@ -1309,6 +1312,97 @@ app.post("/setup/import", requireSetupAuth, async (req, res) => {
   }
 });
 
+// --- External Webhook Routes ---
+// Forward /webhooks/* to /hooks/agent with formatted context.
+// Always return 202 to external callers - gateway processes hooks
+// even when returning unexpected status codes.
+
+// Microsoft Graph webhook endpoint - handles validation handshake
+app.all("/webhooks/graph", async (req, res) => {
+  // Microsoft Graph subscription validation: return validationToken as-is
+  const validationToken = req.query.validationToken;
+  if (validationToken) {
+    return res.type("text/plain").send(validationToken);
+  }
+
+  // Format and forward to /hooks/agent
+  try {
+    await ensureGatewayRunning();
+    const message = {
+      source: "graph",
+      type: "microsoft_graph_notification",
+      payload: req.body,
+      receivedAt: new Date().toISOString(),
+    };
+    fetch(`${GATEWAY_TARGET}/hooks/agent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(OPENCLAW_HOOKS_TOKEN && { Authorization: `Bearer ${OPENCLAW_HOOKS_TOKEN}` }),
+      },
+      body: JSON.stringify(message),
+    }).catch(err => console.error("[webhooks/graph] forward error:", err));
+
+    return res.status(202).send("Accepted");
+  } catch (err) {
+    console.error("[webhooks/graph]", err);
+    return res.status(202).send("Accepted");
+  }
+});
+
+// Agent Mail webhook endpoint
+app.all("/webhooks/agentmail", async (req, res) => {
+  try {
+    await ensureGatewayRunning();
+    const message = {
+      source: "agentmail",
+      type: "agentmail_notification",
+      payload: req.body,
+      receivedAt: new Date().toISOString(),
+    };
+    fetch(`${GATEWAY_TARGET}/hooks/agent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(OPENCLAW_HOOKS_TOKEN && { Authorization: `Bearer ${OPENCLAW_HOOKS_TOKEN}` }),
+      },
+      body: JSON.stringify(message),
+    }).catch(err => console.error("[webhooks/agentmail] forward error:", err));
+
+    return res.status(202).send("Accepted");
+  } catch (err) {
+    console.error("[webhooks/agentmail]", err);
+    return res.status(202).send("Accepted");
+  }
+});
+
+// Generic webhook endpoint for any source
+app.all("/webhooks/:source", async (req, res) => {
+  const { source } = req.params;
+  try {
+    await ensureGatewayRunning();
+    const message = {
+      source: source,
+      type: `${source}_webhook`,
+      payload: req.body,
+      receivedAt: new Date().toISOString(),
+    };
+    fetch(`${GATEWAY_TARGET}/hooks/agent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(OPENCLAW_HOOKS_TOKEN && { Authorization: `Bearer ${OPENCLAW_HOOKS_TOKEN}` }),
+      },
+      body: JSON.stringify(message),
+    }).catch(err => console.error(`[webhooks/${source}] forward error:`, err));
+
+    return res.status(202).send("Accepted");
+  } catch (err) {
+    console.error(`[webhooks/${source}]`, err);
+    return res.status(202).send("Accepted");
+  }
+});
+
 // Proxy everything else to the gateway.
 const proxy = httpProxy.createProxyServer({
   target: GATEWAY_TARGET,
@@ -1333,7 +1427,7 @@ proxy.on("error", (err, _req, res) => {
 // not just the /setup routes.  Healthcheck is excluded so Railway probes work.
 function requireDashboardAuth(req, res, next) {
   if (req.path === "/healthz" || req.path === "/setup/healthz") return next();
-  if (req.path.startsWith("/hooks")) return next(); // allow OpenClaw webhook endpoints to bypass dashboard auth
+  if (req.path.startsWith("/hooks") || req.path.startsWith("/webhooks")) return next(); // allow webhook endpoints to bypass dashboard auth
   if (!SETUP_PASSWORD) return next(); // no password configured → open
   const header = req.headers.authorization || "";
   const [scheme, encoded] = header.split(" ");
