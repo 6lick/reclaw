@@ -1336,8 +1336,7 @@ app.all("/webhooks/graph", async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
-        ...(OPENCLAW_HOOKS_TOKEN && { "x-openclaw-token": OPENCLAW_HOOKS_TOKEN }),
+        "Authorization": `Bearer ${OPENCLAW_HOOKS_TOKEN || OPENCLAW_GATEWAY_TOKEN}`,
       },
       body: JSON.stringify({
         message: `Microsoft Graph notification: ${(req.body?.value || []).map(n => `changeType=${n.changeType} resource=${n.resource}`).join("; ")}`,
@@ -1362,8 +1361,7 @@ app.all("/webhooks/agentmail", async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
-        ...(OPENCLAW_HOOKS_TOKEN && { "x-openclaw-token": OPENCLAW_HOOKS_TOKEN }),
+        "Authorization": `Bearer ${OPENCLAW_HOOKS_TOKEN || OPENCLAW_GATEWAY_TOKEN}`,
       },
       body: JSON.stringify({
         message: `Webhook from agentmail: ${JSON.stringify(req.body).slice(0, 1000)}`,
@@ -1389,8 +1387,7 @@ app.all("/webhooks/:source", async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
-        ...(OPENCLAW_HOOKS_TOKEN && { "x-openclaw-token": OPENCLAW_HOOKS_TOKEN }),
+        "Authorization": `Bearer ${OPENCLAW_HOOKS_TOKEN || OPENCLAW_GATEWAY_TOKEN}`,
       },
       body: JSON.stringify({
         message: `Webhook from ${source}: ${JSON.stringify(req.body).slice(0, 1000)}`,
