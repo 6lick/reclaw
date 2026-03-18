@@ -1316,6 +1316,10 @@ app.post("/setup/import", requireSetupAuth, async (req, res) => {
 // Forward /webhooks/* to /hooks/agent with formatted context.
 // Always return 202 to external callers - gateway processes hooks
 // even when returning unexpected status codes.
+//
+// Auth headers:
+// - Authorization: Bearer {GATEWAY_TOKEN} - for gateway auth layer
+// - x-openclaw-token: {HOOKS_TOKEN} - for hooks auth layer
 
 // Microsoft Graph webhook endpoint - handles validation handshake
 app.all("/webhooks/graph", async (req, res) => {
@@ -1328,19 +1332,19 @@ app.all("/webhooks/graph", async (req, res) => {
   // Format and forward to /hooks/agent
   try {
     await ensureGatewayRunning();
-    const message = {
-      source: "graph",
-      type: "microsoft_graph_notification",
-      payload: req.body,
-      receivedAt: new Date().toISOString(),
-    };
     fetch(`${GATEWAY_TARGET}/hooks/agent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(OPENCLAW_HOOKS_TOKEN && { Authorization: `Bearer ${OPENCLAW_HOOKS_TOKEN}` }),
+        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
+        ...(OPENCLAW_HOOKS_TOKEN && { "x-openclaw-token": OPENCLAW_HOOKS_TOKEN }),
       },
-      body: JSON.stringify(message),
+      body: JSON.stringify({
+        message: `Microsoft Graph notification: ${(req.body?.value || []).map(n => `changeType=${n.changeType} resource=${n.resource}`).join("; ")}`,
+        name: "MSGraph",
+        sessionKey: "hook:graph:email",
+        wakeMode: "now",
+      }),
     }).catch(err => console.error("[webhooks/graph] forward error:", err));
 
     return res.status(202).send("Accepted");
@@ -1354,19 +1358,19 @@ app.all("/webhooks/graph", async (req, res) => {
 app.all("/webhooks/agentmail", async (req, res) => {
   try {
     await ensureGatewayRunning();
-    const message = {
-      source: "agentmail",
-      type: "agentmail_notification",
-      payload: req.body,
-      receivedAt: new Date().toISOString(),
-    };
     fetch(`${GATEWAY_TARGET}/hooks/agent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(OPENCLAW_HOOKS_TOKEN && { Authorization: `Bearer ${OPENCLAW_HOOKS_TOKEN}` }),
+        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
+        ...(OPENCLAW_HOOKS_TOKEN && { "x-openclaw-token": OPENCLAW_HOOKS_TOKEN }),
       },
-      body: JSON.stringify(message),
+      body: JSON.stringify({
+        message: `Webhook from agentmail: ${JSON.stringify(req.body).slice(0, 1000)}`,
+        name: "agentmail",
+        sessionKey: `hook:agentmail:${Date.now()}`,
+        wakeMode: "now",
+      }),
     }).catch(err => console.error("[webhooks/agentmail] forward error:", err));
 
     return res.status(202).send("Accepted");
@@ -1381,19 +1385,19 @@ app.all("/webhooks/:source", async (req, res) => {
   const { source } = req.params;
   try {
     await ensureGatewayRunning();
-    const message = {
-      source: source,
-      type: `${source}_webhook`,
-      payload: req.body,
-      receivedAt: new Date().toISOString(),
-    };
     fetch(`${GATEWAY_TARGET}/hooks/agent`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(OPENCLAW_HOOKS_TOKEN && { Authorization: `Bearer ${OPENCLAW_HOOKS_TOKEN}` }),
+        "Authorization": `Bearer ${OPENCLAW_GATEWAY_TOKEN}`,
+        ...(OPENCLAW_HOOKS_TOKEN && { "x-openclaw-token": OPENCLAW_HOOKS_TOKEN }),
       },
-      body: JSON.stringify(message),
+      body: JSON.stringify({
+        message: `Webhook from ${source}: ${JSON.stringify(req.body).slice(0, 1000)}`,
+        name: source,
+        sessionKey: `hook:${source}:${Date.now()}`,
+        wakeMode: "now",
+      }),
     }).catch(err => console.error(`[webhooks/${source}] forward error:`, err));
 
     return res.status(202).send("Accepted");
