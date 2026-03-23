@@ -1509,6 +1509,19 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
     console.warn("[wrapper] WARNING: SETUP_PASSWORD is not set; /setup will error.");
   }
 
+  // Copy WEBHOOKS.md to workspace if it doesn't exist (documentation for the agent)
+  const webhooksDocSrc = path.join(__dirname, "WEBHOOKS.md");
+  const webhooksDocDest = path.join(WORKSPACE_DIR, "WEBHOOKS.md");
+  try {
+    if (fs.existsSync(webhooksDocSrc) && !fs.existsSync(webhooksDocDest)) {
+      fs.mkdirSync(WORKSPACE_DIR, { recursive: true });
+      fs.copyFileSync(webhooksDocSrc, webhooksDocDest);
+      console.log("[wrapper] copied WEBHOOKS.md to workspace");
+    }
+  } catch (err) {
+    console.warn(`[wrapper] failed to copy WEBHOOKS.md: ${String(err)}`);
+  }
+
   // Optional operator hook to install/persist extra tools under /data.
   // This is intentionally best-effort and should be used to set up persistent
   // prefixes (npm/pnpm/python venv), not to mutate the base image.
