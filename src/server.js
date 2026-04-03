@@ -1362,21 +1362,32 @@ app.all("/webhooks/graph", async (req, res) => {
   }
 });
 
-// Agent Mail webhook endpoint
+// Agent Mail webhook endpoint - uses /hooks/wake to talk to main agent thread
 app.all("/webhooks/agentmail", async (req, res) => {
   try {
     await ensureGatewayRunning();
-    fetch(`${GATEWAY_TARGET}/hooks/agent`, {
+
+    // Format email message for the agent
+    const { from_name, from_email, subject, body_text, thread_id, message_id } = req.body || {};
+    const text = [
+      `📩 Email from ${from_name || "Unknown"} (${from_email || "unknown"})`,
+      `Subject: ${subject || "(no subject)"}`,
+      "",
+      body_text || "(no body)",
+      "",
+      "---",
+      `Reply via AgentMail: thread_id=${thread_id || "unknown"}, in_reply_to=${message_id || "unknown"}`,
+    ].join("\n");
+
+    fetch(`${GATEWAY_TARGET}/hooks/wake`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${OPENCLAW_HOOKS_TOKEN || OPENCLAW_GATEWAY_TOKEN}`,
       },
       body: JSON.stringify({
-        message: `Webhook from agentmail: ${JSON.stringify(req.body).slice(0, 1000)}`,
-        name: "agentmail",
-        sessionKey: `hook:agentmail:${Date.now()}`,
-        wakeMode: "now",
+        text,
+        mode: "now",
       }),
     }).catch(err => console.error("[webhooks/agentmail] forward error:", err));
 
