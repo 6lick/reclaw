@@ -1409,6 +1409,32 @@ app.all("/webhooks/agentmail", async (req, res) => {
   }
 });
 
+// Pixel tracking webhook — process directly in Node, no agent session.
+// Cloudflare Worker POSTs {event, tracking_id, opened_at, ip, user_agent, country};
+// we pipe the payload to process_pixel_open.py which writes campaign_opens /
+// campaign_recipients / pixel_sends in brick.db.
+app.post("/webhooks/pixel", (req, res) => {
+  const payload = JSON.stringify(req.body || {});
+  const proc = childProcess.spawn(
+    "python3",
+    ["/data/workspace/scripts/process_pixel_open.py"],
+    { stdio: ["pipe", "pipe", "pipe"] }
+  );
+  proc.stdin.end(payload);
+  let out = "", err = "";
+  proc.stdout.on("data", (c) => { out += c.toString(); });
+  proc.stderr.on("data", (c) => { err += c.toString(); });
+  proc.on("close", (code) => {
+    if (code !== 0) {
+      console.error(`[webhooks/pixel] script exit=${code} stderr=${err.trim()}`);
+    } else if (out.trim()) {
+      console.log(`[webhooks/pixel] ${out.trim().split("\n")[0]}`);
+    }
+  });
+  proc.on("error", (e) => console.error("[webhooks/pixel] spawn error:", e));
+  return res.status(202).send("Accepted");
+});
+
 // Generic webhook endpoint for any source
 app.all("/webhooks/:source", async (req, res) => {
   const { source } = req.params;
