@@ -1362,44 +1362,25 @@ app.all("/webhooks/graph", async (req, res) => {
   }
 });
 
-// Agent Mail webhook endpoint - uses /hooks/wake to talk to main agent thread
+// Agent Mail webhook endpoint - forwards to the gateway's mapped /hooks/agentmail
+// endpoint, which renders the message + session key via hooks.mappings[] in
+// openclaw.json. Per-thread sessionKey (hook:agentmail:<thread_id>) gives Brick
+// channel-like continuity for replies on the same email thread.
 app.all("/webhooks/agentmail", async (req, res) => {
   try {
     await ensureGatewayRunning();
 
-    // AgentMail payload has nested structure: { message: {...}, thread: {...} }
-    const { message, thread } = req.body || {};
-
-    // Extract fields from nested message object
-    const from = message?.from || "Unknown";
-    const subject = message?.subject || thread?.subject || "(no subject)";
-    const body = message?.text || message?.html || "(no body)";
-    const threadId = message?.thread_id || thread?.thread_id;
-    const messageId = message?.message_id;
-
-    // Format email message for the agent
-    const text = [
-      `📩 Email from ${from}`,
-      `Subject: ${subject}`,
-      "",
-      body,
-      "",
-      "---",
-      `Reply via AgentMail: thread_id=${threadId || "unknown"}, in_reply_to=${messageId || "unknown"}`,
-    ].join("\n");
-
     console.log("[webhooks/agentmail] received:", JSON.stringify(req.body, null, 2));
 
-    fetch(`${GATEWAY_TARGET}/hooks/wake`, {
+    // Pass the raw payload through; the mapping's messageTemplate + sessionKey
+    // templates pull from {{payload.message.*}} on the gateway side.
+    fetch(`${GATEWAY_TARGET}/hooks/agentmail`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${OPENCLAW_HOOKS_TOKEN || OPENCLAW_GATEWAY_TOKEN}`,
       },
-      body: JSON.stringify({
-        text,
-        mode: "now",
-      }),
+      body: JSON.stringify(req.body || {}),
     }).catch(err => console.error("[webhooks/agentmail] forward error:", err));
 
     return res.status(202).send("Accepted");
