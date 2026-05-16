@@ -33,6 +33,12 @@ RUN set -eux; \
     sed -i -E 's/"openclaw"[[:space:]]*:[[:space:]]*"workspace:[^"]+"/"openclaw": "*"/g' "$f"; \
   done
 
+# Patch: exclude all @openclaw/* scoped packages from pnpm's minimumReleaseAge guard.
+# The openclaw monorepo publishes new @openclaw/* packages frequently; without
+# this, a fresh @openclaw/* release (<48hr old) blocks the entire build with
+# ERR_PNPM_NO_MATURE_MATCHING_VERSION even though it's a first-party dependency.
+RUN sed -i '/^minimumReleaseAgeExclude:$/a\  - "@openclaw/*"' pnpm-workspace.yaml
+
 RUN pnpm install --no-frozen-lockfile
 RUN pnpm build
 ENV OPENCLAW_PREFER_PNPM=1
